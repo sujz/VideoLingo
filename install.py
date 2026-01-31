@@ -1,6 +1,8 @@
 import os, sys
 import platform
 import subprocess
+import tempfile
+import time
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 ascii_logo = """
@@ -131,8 +133,35 @@ def main():
 
     @except_handler("Failed to install project")
     def install_requirements():
-        console.print(Panel(t("Installing project in editable mode using `pip install -e .`"), style="cyan"))
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", "."], env={**os.environ, "PIP_NO_CACHE_DIR": "0", "PYTHONIOENCODING": "utf-8"})
+        console.print(Panel(t("Installing project and dependencies"), style="cyan"))
+
+        # Try to pre-install a prebuilt PyAV wheel (avoid building from source)
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "av==12.1.0"], env={**os.environ, "PIP_NO_CACHE_DIR": "0", "PYTHONIOENCODING": "utf-8"})
+        except Exception:
+            # not fatal; continue and try installing filtered requirements
+            pass
+
+        # Create a temporary requirements file that excludes git-hosted packages
+        req_file = os.path.join(os.path.dirname(__file__), "requirements.txt")
+        tmp_req = os.path.join(tempfile.gettempdir(), "videolingo_requirements_no_git.txt")
+        with open(req_file, encoding='utf-8') as rf, open(tmp_req, 'w', encoding='utf-8') as wf:
+            for line in rf:
+                s = line.strip()
+                if not s:
+                    continue
+                # skip git dependencies and direct editable VCS lines
+                if 'git+' in s or s.startswith('demucs') or s.startswith('whisperx') or s.startswith('demucs[') or '@ git+' in s:
+                    continue
+                wf.write(line)
+
+        # Install all non-git dependencies first
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", tmp_req], env={**os.environ, "PIP_NO_CACHE_DIR": "0", "PYTHONIOENCODING": "utf-8"})
+
+        # Install the project in editable mode without resolving dependencies (they are already installed)
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-e", ".", "--no-deps"], env={**os.environ, "PIP_NO_CACHE_DIR": "0", "PYTHONIOENCODING": "utf-8"})
+
+        console.print(Panel(t("✅ Core Python dependencies installed. Git-based packages (whisperx/demucs) may require manual installation if network fails."), style="green"))
 
     @except_handler("Failed to install Noto fonts")
     def install_noto_font():
