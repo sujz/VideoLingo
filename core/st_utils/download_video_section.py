@@ -27,7 +27,18 @@ def download_video_section():
         except:
             col1, col2 = st.columns([3, 1])
             with col1:
-                url = st.text_input(t("Enter YouTube link:"))
+                # Always show search results section
+                yt_results = st.session_state.get('yt_search_results', [])
+                if yt_results:
+                    options = [f"{i+1}. {r.get('title','(no title)')} [{r.get('duration','?')}s]" for i, r in enumerate(yt_results)]
+                    idx = st.selectbox(t("Search results (select to download):"), options=options, index=0)
+                    selected_index = options.index(idx)
+                    url = yt_results[selected_index].get('url')
+                    if st.button(t("Clear search results")):
+                        st.session_state['yt_search_results'] = []
+                else:
+                    st.info(t("No YouTube search results found. Please search above or enter a link manually."))
+                    url = st.text_input(t("Enter YouTube link:"))
             with col2:
                 res_dict = {
                     "360p": "360",

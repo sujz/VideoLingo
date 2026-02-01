@@ -2,6 +2,7 @@ import streamlit as st
 import os, sys
 from core.st_utils.imports_and_utils import *
 from core import *
+from core._0_youtube_search import search_youtube
 
 # SET PATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -9,6 +10,31 @@ os.environ['PATH'] += os.pathsep + current_dir
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 st.set_page_config(page_title="VideoLingo", page_icon="docs/logo.svg")
+
+
+def safe_rerun():
+    """Trigger a Streamlit rerun in a way that works across Streamlit versions.
+
+    Tries `st.experimental_rerun()` first, falls back to `st.rerun()`, and
+    finally raises the internal `RerunException` if necessary.
+    """
+    try:
+        # Preferred in some versions
+        return st.experimental_rerun()
+    except Exception:
+        pass
+    try:
+        # Older/newer alias
+        return st.rerun()
+    except Exception:
+        pass
+    # Last resort: raise the internal rerun exception
+    try:
+        from streamlit.runtime.scriptrunner.script_runner import RerunException
+        raise RerunException()
+    except Exception:
+        # If even that fails, raise a RuntimeError so caller sees an explicit failure
+        raise RuntimeError("Unable to trigger Streamlit rerun on this Streamlit version")
 
 SUB_VIDEO = "output/output_sub.mp4"
 DUB_VIDEO = "output/output_dub.mp4"
@@ -31,7 +57,7 @@ def text_processing_section():
         if not os.path.exists(SUB_VIDEO):
             if st.button(t("Start Processing Subtitles"), key="text_processing_button"):
                 process_text()
-                st.rerun()
+                safe_rerun()
         else:
             if load_key("burn_subtitles"):
                 st.video(SUB_VIDEO)
@@ -39,7 +65,7 @@ def text_processing_section():
             
             if st.button(t("Archive to 'history'"), key="cleanup_in_text_processing"):
                 cleanup()
-                st.rerun()
+                safe_rerun()
             return True
 
 def process_text():
@@ -77,17 +103,17 @@ def audio_processing_section():
         if not os.path.exists(DUB_VIDEO):
             if st.button(t("Start Audio Processing"), key="audio_processing_button"):
                 process_audio()
-                st.rerun()
+                safe_rerun()
         else:
             st.success(t("Audio processing is complete! You can check the audio files in the `output` folder."))
             if load_key("burn_subtitles"):
                 st.video(DUB_VIDEO) 
             if st.button(t("Delete dubbing files"), key="delete_dubbing_files"):
                 delete_dubbing_files()
-                st.rerun()
+                safe_rerun()
             if st.button(t("Archive to 'history'"), key="cleanup_in_audio_processing"):
                 cleanup()
-                st.rerun()
+                safe_rerun()
 
 def process_audio():
     with st.spinner(t("Generate audio tasks")): 
@@ -116,6 +142,17 @@ def main():
     with st.sidebar:
         page_setting()
         st.markdown(give_star_button, unsafe_allow_html=True)
+    # YouTube search box (stores results in session_state['yt_search_results'])
+    with st.container():
+        st.markdown("### YouTube Search")
+        query = st.text_input("Search YouTube", key="yt_search_query")
+        if st.button("Search YouTube", key="yt_search_button"):
+            if query:
+                with st.spinner("Searching YouTube..."):
+                    results = search_youtube(query, max_results=8)
+                    st.session_state['yt_search_results'] = results
+                    safe_rerun()
+
     download_video_section()
     text_processing_section()
     audio_processing_section()

@@ -13,6 +13,7 @@ from core.tts_backend.sf_cosyvoice2 import cosyvoice_tts_for_videolingo
 from core.tts_backend.custom_tts import custom_tts
 from core.prompts import get_correct_text_prompt
 from core.tts_backend._302_f5tts import f5_tts_for_videolingo
+from core.tts_backend.volc_tts import volc_tts
 from core.utils import *
 
 def clean_text_for_tts(text):
@@ -60,6 +61,8 @@ def tts_main(text, save_as, number, task_df):
                 edge_tts(text, save_as)
             elif TTS_METHOD == 'custom_tts':
                 custom_tts(text, save_as)
+            elif TTS_METHOD == 'volc_tts':
+                volc_tts(text, save_as)
             elif TTS_METHOD == 'sf_cosyvoice2':
                 cosyvoice_tts_for_videolingo(text, save_as, number, task_df)
             elif TTS_METHOD == 'f5tts':

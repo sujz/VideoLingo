@@ -49,14 +49,20 @@ def split_sentence(sentence, num_parts, word_limit=20, index=-1, retry_attempt=0
     """Split a long sentence using GPT and return the result as a string."""
     split_prompt = get_split_prompt(sentence, num_parts, word_limit)
     def valid_split(response_data):
-        choice = response_data["choice"]
+        if not isinstance(response_data, dict):
+            return {"status": "error", "message": f"LLM返回内容不是JSON对象: {response_data}"}
+        choice = response_data.get("choice")
+        if not choice:
+            return {"status": "error", "message": "Missing required key: `choice`"}
         if f'split{choice}' not in response_data:
             return {"status": "error", "message": "Missing required key: `split`"}
         if "[br]" not in response_data[f"split{choice}"]:
             return {"status": "error", "message": "Split failed, no [br] found"}
         return {"status": "success", "message": "Split completed"}
-    
+
     response_data = ask_gpt(split_prompt + " " * retry_attempt, resp_type='json', valid_def=valid_split, log_title='split_by_meaning')
+    if not isinstance(response_data, dict):
+        raise ValueError(f"LLM返回内容不是JSON对象: {response_data}")
     choice = response_data["choice"]
     best_split = response_data[f"split{choice}"]
     split_points = find_split_positions(sentence, best_split)
