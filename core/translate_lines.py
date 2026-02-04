@@ -7,14 +7,20 @@ from core.utils import *
 console = Console()
 
 def valid_translate_result(result: dict, required_keys: list, required_sub_keys: list):
+    # Normalize result keys to strings to tolerate models returning numeric keys
+    normalized = {str(k): v for k, v in result.items()}
+
     # Check for the required key
-    if not all(key in result for key in required_keys):
-        return {"status": "error", "message": f"Missing required key(s): {', '.join(set(required_keys) - set(result.keys()))}"}
-    
+    missing_keys = set(required_keys) - set(normalized.keys())
+    if missing_keys:
+        return {"status": "error", "message": f"Missing required key(s): {', '.join(sorted(missing_keys))}"}
+
     # Check for required sub-keys in all items
-    for key in result:
-        if not all(sub_key in result[key] for sub_key in required_sub_keys):
-            return {"status": "error", "message": f"Missing required sub-key(s) in item {key}: {', '.join(set(required_sub_keys) - set(result[key].keys()))}"}
+    for key in required_keys:
+        item = normalized.get(key, {})
+        if not all(sub_key in item for sub_key in required_sub_keys):
+            missing_sub = set(required_sub_keys) - set(item.keys())
+            return {"status": "error", "message": f"Missing required sub-key(s) in item {key}: {', '.join(sorted(missing_sub))}"}
 
     return {"status": "success", "message": "Translation completed"}
 
@@ -42,8 +48,14 @@ def translate_lines(lines, previous_content_prompt, after_cotent_prompt, things_
     prompt1 = get_prompt_faithfulness(lines, shared_prompt)
     faith_result = retry_translation(prompt1, len(lines.split('\n')), 'faithfulness')
 
+    # Normalize 'direct' field: model may return list or other types
     for i in faith_result:
-        faith_result[i]["direct"] = faith_result[i]["direct"].replace('\n', ' ')
+        direct_val = faith_result[i].get("direct", "")
+        if isinstance(direct_val, list):
+            direct_val = " ".join([str(x) for x in direct_val])
+        else:
+            direct_val = str(direct_val)
+        faith_result[i]["direct"] = direct_val.replace('\n', ' ').strip()
 
     # If reflect_translate is False or not set, use faithful translation directly
     reflect_translate = load_key('reflect_translate')
@@ -68,16 +80,25 @@ def translate_lines(lines, previous_content_prompt, after_cotent_prompt, things_
 
     table = Table(title="Translation Results", show_header=False, box=box.ROUNDED)
     table.add_column("Translations", style="bold")
+    # Normalize 'free' field from express_result before display (handle list returns)
+    for k in express_result:
+        free_val = express_result[k].get("free", "")
+        if isinstance(free_val, list):
+            free_val = " ".join([str(x) for x in free_val])
+        else:
+            free_val = str(free_val)
+        express_result[k]["free"] = free_val.replace('\n', ' ').strip()
+
     for i, key in enumerate(express_result):
-        table.add_row(f"[cyan]Origin:  {faith_result[key]['origin']}[/cyan]")
-        table.add_row(f"[magenta]Direct:  {faith_result[key]['direct']}[/magenta]")
-        table.add_row(f"[green]Free:    {express_result[key]['free']}[/green]")
+        table.add_row(f"[cyan]Origin:  {faith_result[key].get('origin','')}[/cyan]")
+        table.add_row(f"[magenta]Direct:  {faith_result[key].get('direct','')}[/magenta]")
+        table.add_row(f"[green]Free:    {express_result[key].get('free','')}[/green]")
         if i < len(express_result) - 1:
             table.add_row("[yellow]" + "-" * 50 + "[/yellow]")
 
     console.print(table)
 
-    translate_result = "\n".join([express_result[i]["free"].replace('\n', ' ').strip() for i in express_result])
+    translate_result = "\n".join([express_result[i]["free"] for i in express_result])
 
     if len(lines.split('\n')) != len(translate_result.split('\n')):
         console.print(Panel(f'[red]❌ Translation of block {index} failed, Length Mismatch, Please check `output/gpt_log/translate_expressiveness.json`[/red]'))

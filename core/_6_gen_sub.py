@@ -155,7 +155,10 @@ def align_timestamp_main():
     df_translate = pd.read_excel(_5_SPLIT_SUB)
     df_translate['Translation'] = df_translate['Translation'].apply(clean_translation)
     
-    align_timestamp(df_text, df_translate, SUBTITLE_OUTPUT_CONFIGS, _OUTPUT_DIR)
+    df_trans_time = align_timestamp(df_text, df_translate, SUBTITLE_OUTPUT_CONFIGS, _OUTPUT_DIR)
+    # 保存最终带时间戳的中文字幕表，供关键段识别等用
+    os.makedirs("output/log", exist_ok=True)
+    df_trans_time.to_excel("output/log/trans_time_with_timestamp.xlsx", index=False)
     console.print(Panel("[bold green]🎉📝 Subtitles generation completed! Please check in the `output` folder 👀[/bold green]"))
 
     # for audio
