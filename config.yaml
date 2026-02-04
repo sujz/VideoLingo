@@ -1,4 +1,4 @@
-# * Settings marked with * are advanced settings that won't appear in the Streamlit page and can only be modified manually in config.py
+# Settings marked with * are advanced settings that won't appear in the Streamlit page and can only be modified manually in config.py
 # recommend to set in streamlit page
 # -------------------
 # version: "3.0.0"
@@ -12,8 +12,10 @@ display_language: "zh-CN"
 # API settings
 api:
   key: 'your-api-key'
-  base_url: 'https://yunwu.ai'
-  model: 'gpt-4.1-2025-04-14'
+  base_url: 'http://127.0.0.1:11434'
+  # Provider: 'openai' (default), or 'ollama' for local Ollama server
+  provider: 'ollama'
+  model: 'llama3:latest'
   llm_support_json: false
 # *Number of LLM multi-threaded accesses, set to 1 if using local LLM
 max_workers: 4
@@ -50,6 +52,14 @@ youtube:
 
 # *Default resolution for downloading YouTube videos [360, 1080, best]
 ytb_resolution: '1080'
+# Subtitle font style settings
+subtitle_font:
+  name: 'PingFang SC'   # Arial Unicode MS
+  size: 18
+  color: '&H00FFFFFF'
+  outline_color: '&H00000000'
+  outline_width: 2
+  back_color: '&H33000000'
 
 subtitle:
   # *Maximum length of each subtitle line in characters
@@ -59,6 +69,20 @@ subtitle:
 
 # *Summary length, set low to 2k if using local LLM
 summary_length: 8000
+
+# Summary generation settings for video abstracts
+summary:
+  # Ratio of original video length to use for summary (e.g. 0.06 => 6%)
+  ratio: 0.06
+  # Minimum and maximum summary length in seconds
+  min_seconds: 8
+  max_seconds: 180
+  # Padding seconds to add before/after each clip when cutting
+  padding: 0.4
+  # Selection method: greedy_mmr or greedy_density (default: greedy_mmr)
+  method: 'greedy_mmr'
+  # MMR diversity lambda (0..1), higher => more relevance, lower => more diversity
+  mmr_lambda: 0.7
 
 # *Maximum number of words for the first rough cut, below 18 will cut too finely affecting translation, above 22 is too long and will make subsequent subtitle splitting difficult to align
 max_split_length: 20
@@ -71,7 +95,7 @@ pause_before_translate: false
 
 ## ======================== Dubbing Settings ======================== ##
 # TTS selection [sf_fish_tts, openai_tts, gpt_sovits, azure_tts, fish_tts, edge_tts, custom_tts]
-tts_method: 'azure_tts'
+tts_method: 'edge_tts'
 
 # SiliconFlow FishTTS
 sf_fish_tts:

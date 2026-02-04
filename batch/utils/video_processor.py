@@ -7,6 +7,7 @@ from functools import partial
 from rich.panel import Panel
 from rich.console import Console
 from core import *
+from core._13_gen_summary import gen_video_summary
 
 console = Console()
 
@@ -68,6 +69,22 @@ def process_video(file, dubbing=False, is_retry=False):
                 ))
     
     console.print(Panel("[bold green]All steps completed successfully! 🎉[/]", border_style="green"))
+    # After full pipeline (including dubbing if requested), generate summary
+    # so it can use the merged dubbed audio and burn Chinese subtitles.
+    try:
+        for attempt in range(2):
+            try:
+                console.print(Panel(f"[bold green]📝 Generating video summary (post-processing)[/]", border_style="blue"))
+                res = gen_video_summary()
+                if res is not None:
+                    globals().update(res)
+                break
+            except Exception:
+                if attempt == 1:
+                    console.print(Panel(f"[bold yellow]Warning: summary generation failed after dubbing.[/]", border_style="yellow"))
+    except Exception:
+        pass
+
     cleanup(SAVE_DIR)
     return True, "", ""
 

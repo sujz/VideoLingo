@@ -2,6 +2,7 @@ import streamlit as st
 import os, sys
 from core.st_utils.imports_and_utils import *
 from core import *
+from core._13_gen_summary import gen_video_summary
 
 # SET PATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -58,6 +59,11 @@ def process_text():
         _6_gen_sub.align_timestamp_main()
     with st.spinner(t("Merging subtitles to video...")):
         _7_sub_into_vid.merge_subtitles_to_video()
+    # Generate Chinese summary video after subtitles are ready
+    try:
+        gen_video_summary()
+    except Exception:
+        pass
     
     st.success(t("Subtitle processing complete! 🎉"))
     st.balloons()

@@ -111,17 +111,19 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
 
     # Process timestamps ⏰
     time_stamp_list = get_sentence_timestamps(df_text, df_translate)
-    df_trans_time['timestamp'] = time_stamp_list
-    df_trans_time['duration'] = df_trans_time['timestamp'].apply(lambda x: x[1] - x[0])
+    # store numeric start/end seconds for robustness
+    df_trans_time['start_time'] = [t[0] for t in time_stamp_list]
+    df_trans_time['end_time'] = [t[1] for t in time_stamp_list]
+    df_trans_time['duration'] = df_trans_time['end_time'] - df_trans_time['start_time']
 
-    # Remove gaps 🕳️
+    # Remove small gaps 🕳️ by merging adjacent timestamps when gap < 1s
     for i in range(len(df_trans_time)-1):
-        delta_time = df_trans_time.loc[i+1, 'timestamp'][0] - df_trans_time.loc[i, 'timestamp'][1]
+        delta_time = df_trans_time.loc[i+1, 'start_time'] - df_trans_time.loc[i, 'end_time']
         if 0 < delta_time < 1:
-            df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0])
+            df_trans_time.at[i, 'end_time'] = df_trans_time.loc[i+1, 'start_time']
 
-    # Convert start and end timestamps to SRT format
-    df_trans_time['timestamp'] = df_trans_time['timestamp'].apply(lambda x: convert_to_srt_format(x[0], x[1]))
+    # Convert start and end timestamps to SRT string format for file generation
+    df_trans_time['timestamp'] = df_trans_time.apply(lambda row: convert_to_srt_format(row['start_time'], row['end_time']), axis=1)
 
     # Polish subtitles: replace punctuation in Translation if for_display
     if for_display:
@@ -137,6 +139,13 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
             subtitle_str = generate_subtitle_string(df_trans_time, columns)
             with open(os.path.join(output_dir, filename), 'w', encoding='utf-8') as f:
                 f.write(subtitle_str)
+
+    # Persist translation results with numeric timestamps for downstream tools (summary generator)
+    try:
+        from core.utils.models import _5_WITH_TIMESTAMPS
+        pd.DataFrame(df_trans_time).to_excel(_5_WITH_TIMESTAMPS, index=False)
+    except Exception:
+        pass
     
     return df_trans_time
 

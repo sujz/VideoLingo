@@ -57,8 +57,19 @@ def find_video_files(save_path='output'):
     if sys.platform.startswith('win'):
         video_files = [file.replace("\\", "/") for file in video_files]
     video_files = [file for file in video_files if not file.startswith("output/output")]
-    if len(video_files) != 1:
-        raise ValueError(f"Number of videos found {len(video_files)} is not unique. Please check.")
+    if len(video_files) == 0:
+        raise ValueError("No video files found in output. Please check.")
+
+    # If multiple video files found (e.g., .webm and .mp4), choose the largest file by size.
+    if len(video_files) > 1:
+        try:
+            video_files.sort(key=lambda f: os.path.getsize(f), reverse=True)
+            chosen = video_files[0]
+            rprint(f"[yellow]⚠️ Multiple video files found in {save_path}, selecting largest: {os.path.basename(chosen)}[/yellow]")
+            return chosen
+        except Exception:
+            raise ValueError(f"Multiple video files found {len(video_files)}; please ensure a single video file is present.")
+
     return video_files[0]
 
 if __name__ == '__main__':

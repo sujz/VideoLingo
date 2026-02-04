@@ -9,6 +9,7 @@ _4_1_TERMINOLOGY = "output/log/terminology.json"
 _4_2_TRANSLATION = "output/log/translation_results.xlsx"
 _5_SPLIT_SUB = "output/log/translation_results_for_subtitles.xlsx"
 _5_REMERGED = "output/log/translation_results_remerged.xlsx"
+_5_WITH_TIMESTAMPS = "output/log/translation_results_with_timestamps.xlsx"
 
 _8_1_AUDIO_TASK = "output/audio/tts_tasks.xlsx"
 
