@@ -139,13 +139,6 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
             subtitle_str = generate_subtitle_string(df_trans_time, columns)
             with open(os.path.join(output_dir, filename), 'w', encoding='utf-8') as f:
                 f.write(subtitle_str)
-
-    # Persist translation results with numeric timestamps for downstream tools (summary generator)
-    try:
-        from core.utils.models import _5_WITH_TIMESTAMPS
-        pd.DataFrame(df_trans_time).to_excel(_5_WITH_TIMESTAMPS, index=False)
-    except Exception:
-        pass
     
     return df_trans_time
 

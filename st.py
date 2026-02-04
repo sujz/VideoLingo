@@ -2,7 +2,12 @@ import streamlit as st
 import os, sys
 from core.st_utils.imports_and_utils import *
 from core import *
-from core._13_gen_summary import gen_video_summary
+from core._13_identify_key_segments import identify_key_segments_from_subtitles
+from core._14_extract_video_clips import (
+    extract_video_clips_by_segments,
+    merge_all_video_clips,
+    create_dubbed_summary_from_segments,
+)
 
 # SET PATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -61,7 +66,18 @@ def process_text():
         _7_sub_into_vid.merge_subtitles_to_video()
     # Generate Chinese summary video after subtitles are ready
     try:
-        gen_video_summary()
+        # Identify key segments and produce a short summary video (best-effort)
+        key_segments = identify_key_segments_from_subtitles()
+        if key_segments:
+            extract_video_clips_by_segments(key_segments)
+            try:
+                merged = merge_all_video_clips()
+                try:
+                    create_dubbed_summary_from_segments(key_segments, merged_video=merged)
+                except Exception:
+                    pass
+            except Exception:
+                pass
     except Exception:
         pass
     

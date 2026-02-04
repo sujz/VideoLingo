@@ -7,7 +7,12 @@ from functools import partial
 from rich.panel import Panel
 from rich.console import Console
 from core import *
-from core._13_gen_summary import gen_video_summary
+from core._13_identify_key_segments import identify_key_segments_from_subtitles
+from core._14_extract_video_clips import (
+    extract_video_clips_by_segments,
+    merge_all_video_clips,
+    create_dubbed_summary_from_segments,
+)
 
 console = Console()
 
@@ -75,7 +80,21 @@ def process_video(file, dubbing=False, is_retry=False):
         for attempt in range(2):
             try:
                 console.print(Panel(f"[bold green]📝 Generating video summary (post-processing)[/]", border_style="blue"))
-                res = gen_video_summary()
+                # Use identify + clip extraction flow to create summary
+                key_segments = identify_key_segments_from_subtitles()
+                res = None
+                if key_segments:
+                    clips = extract_video_clips_by_segments(key_segments)
+                    merged = None
+                    try:
+                        merged = merge_all_video_clips()
+                    except Exception:
+                        pass
+                    try:
+                        create_dubbed_summary_from_segments(key_segments, merged_video=merged)
+                    except Exception:
+                        pass
+                    res = {'clips': clips if 'clips' in locals() else None, 'merged': merged}
                 if res is not None:
                     globals().update(res)
                 break

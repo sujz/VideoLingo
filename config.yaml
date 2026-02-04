@@ -70,19 +70,6 @@ subtitle:
 # *Summary length, set low to 2k if using local LLM
 summary_length: 8000
 
-# Summary generation settings for video abstracts
-summary:
-  # Ratio of original video length to use for summary (e.g. 0.06 => 6%)
-  ratio: 0.06
-  # Minimum and maximum summary length in seconds
-  min_seconds: 8
-  max_seconds: 180
-  # Padding seconds to add before/after each clip when cutting
-  padding: 0.4
-  # Selection method: greedy_mmr or greedy_density (default: greedy_mmr)
-  method: 'greedy_mmr'
-  # MMR diversity lambda (0..1), higher => more relevance, lower => more diversity
-  mmr_lambda: 0.7
 
 # *Maximum number of words for the first rough cut, below 18 will cut too finely affecting translation, above 22 is too long and will make subsequent subtitle splitting difficult to align
 max_split_length: 20
