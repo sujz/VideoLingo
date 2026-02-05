@@ -32,16 +32,24 @@ def calc_len(text: str) -> float:
 
 def align_subs(src_sub: str, tr_sub: str, src_part: str) -> Tuple[List[str], List[str], str]:
     align_prompt = get_align_prompt(src_sub, tr_sub, src_part)
+    src_parts = src_part.split('\n')
+    expected_parts = len(src_parts)
     
     def valid_align(response_data):
         if 'align' not in response_data:
             return {"status": "error", "message": "Missing required key: `align`"}
-        if len(response_data['align']) < 2:
-            return {"status": "error", "message": "Align does not contain more than 1 part as expected!"}
+        if len(response_data['align']) != expected_parts:
+            return {"status": "error", "message": f"Align parts count mismatch: expected {expected_parts}, got {len(response_data['align'])}"}
+        # validate required keys and non-empty target parts
+        for i, item in enumerate(response_data['align']):
+            key = f"target_part_{i+1}"
+            if key not in item:
+                return {"status": "error", "message": f"Missing required key in align[{i}]: {key}"}
+            if not str(item.get(key, '')).strip():
+                return {"status": "error", "message": f"Empty target part in align[{i}]: {key}"}
         return {"status": "success", "message": "Align completed"}
     parsed = ask_gpt(align_prompt, resp_type='json', valid_def=valid_align, log_title='align_subs')
     align_data = parsed['align']
-    src_parts = src_part.split('\n')
     tr_parts = [item[f'target_part_{i+1}'].strip() for i, item in enumerate(align_data)]
     
     whisper_language = load_key("whisper.language")
