@@ -1,9 +1,7 @@
 from ruamel.yaml import YAML
 import threading
-import os
 
-# Allow overriding config path per-process via env var for parallel batch runs
-CONFIG_PATH = os.getenv('VIDEO_LINGO_CONFIG_PATH', 'config.yaml')
+CONFIG_PATH = 'config.yaml'
 lock = threading.Lock()
 
 yaml = YAML()

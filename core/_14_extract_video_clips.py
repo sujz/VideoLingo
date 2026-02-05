@@ -6,7 +6,14 @@ from pathlib import Path
 from core.utils import *
 from core.utils.models import *
 from core._1_ytdlp import find_video_files
-from core._12_dub_to_vid import get_subtitle_font_config
+from core._12_dub_to_vid import (
+    TRANS_FONT_NAME,
+    TRANS_FONT_SIZE,
+    TRANS_FONT_COLOR,
+    TRANS_OUTLINE_COLOR,
+    TRANS_OUTLINE_WIDTH,
+    TRANS_BACK_COLOR,
+)
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -106,16 +113,12 @@ def extract_video_clips_by_segments(
                     if burn_subs:
                         # Use ffmpeg subtitles filter to burn translated subtitles (trans.srt)
                         # Apply styling from config (font name, size, colors, outline, background)
-                        try:
-                            font_name, font_size, font_color, outline_color, outline_width, back_color = get_subtitle_font_config()
-                            subtitle_filter = (
-                                f"subtitles={subtitle_file}:force_style='FontName={font_name},FontSize={font_size},"
-                                f"PrimaryColour={font_color},OutlineColour={outline_color},OutlineWidth={outline_width},"
-                                f"BackColour={back_color},Alignment=2,MarginV=27,BorderStyle=4'"
-                            )
-                        except Exception:
-                            # Fallback to simple subtitles filter if config read fails
-                            subtitle_filter = f"subtitles={subtitle_file}"
+                        subtitle_filter = (
+                            f"subtitles={subtitle_file}:force_style='FontSize={TRANS_FONT_SIZE},"
+                            f"FontName={TRANS_FONT_NAME},PrimaryColour={TRANS_FONT_COLOR},"
+                            f"OutlineColour={TRANS_OUTLINE_COLOR},OutlineWidth={TRANS_OUTLINE_WIDTH},"
+                            f"BackColour={TRANS_BACK_COLOR},Alignment=2,MarginV=27,BorderStyle=4'"
+                        )
 
                         filter_parts.append(subtitle_filter)
 

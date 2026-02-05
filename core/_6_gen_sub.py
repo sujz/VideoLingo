@@ -111,19 +111,17 @@ def align_timestamp(df_text, df_translate, subtitle_output_configs: list, output
 
     # Process timestamps ⏰
     time_stamp_list = get_sentence_timestamps(df_text, df_translate)
-    # store numeric start/end seconds for robustness
-    df_trans_time['start_time'] = [t[0] for t in time_stamp_list]
-    df_trans_time['end_time'] = [t[1] for t in time_stamp_list]
-    df_trans_time['duration'] = df_trans_time['end_time'] - df_trans_time['start_time']
+    df_trans_time['timestamp'] = time_stamp_list
+    df_trans_time['duration'] = df_trans_time['timestamp'].apply(lambda x: x[1] - x[0])
 
-    # Remove small gaps 🕳️ by merging adjacent timestamps when gap < 1s
+    # Remove gaps 🕳️
     for i in range(len(df_trans_time)-1):
-        delta_time = df_trans_time.loc[i+1, 'start_time'] - df_trans_time.loc[i, 'end_time']
+        delta_time = df_trans_time.loc[i+1, 'timestamp'][0] - df_trans_time.loc[i, 'timestamp'][1]
         if 0 < delta_time < 1:
-            df_trans_time.at[i, 'end_time'] = df_trans_time.loc[i+1, 'start_time']
+            df_trans_time.at[i, 'timestamp'] = (df_trans_time.loc[i, 'timestamp'][0], df_trans_time.loc[i+1, 'timestamp'][0])
 
-    # Convert start and end timestamps to SRT string format for file generation
-    df_trans_time['timestamp'] = df_trans_time.apply(lambda row: convert_to_srt_format(row['start_time'], row['end_time']), axis=1)
+    # Convert start and end timestamps to SRT format
+    df_trans_time['timestamp'] = df_trans_time['timestamp'].apply(lambda x: convert_to_srt_format(x[0], x[1]))
 
     # Polish subtitles: replace punctuation in Translation if for_display
     if for_display:
@@ -155,10 +153,7 @@ def align_timestamp_main():
     df_translate = pd.read_excel(_5_SPLIT_SUB)
     df_translate['Translation'] = df_translate['Translation'].apply(clean_translation)
     
-    df_trans_time = align_timestamp(df_text, df_translate, SUBTITLE_OUTPUT_CONFIGS, _OUTPUT_DIR)
-    # 保存最终带时间戳的中文字幕表，供关键段识别等用
-    os.makedirs("output/log", exist_ok=True)
-    df_trans_time.to_excel("output/log/trans_time_with_timestamp.xlsx", index=False)
+    align_timestamp(df_text, df_translate, SUBTITLE_OUTPUT_CONFIGS, _OUTPUT_DIR)
     console.print(Panel("[bold green]🎉📝 Subtitles generation completed! Please check in the `output` folder 👀[/bold green]"))
 
     # for audio
