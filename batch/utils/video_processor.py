@@ -1,6 +1,7 @@
 import os
 from core.st_utils.imports_and_utils import *
 from core.utils.onekeycleanup import cleanup
+from core.utils.onekeycleanup import sanitize_filename
 from core.utils import load_key
 import shutil
 from functools import partial
@@ -67,7 +68,7 @@ def process_video(file, dubbing=False, is_retry=False):
                     )
                     console.print(error_panel)
                     cleanup(ERROR_OUTPUT_DIR)
-                    return False, current_step, str(e)
+                    return False, current_step, str(e), None
                 console.print(Panel(
                     f"[yellow]Attempt {attempt + 1} failed. Retrying...[/]",
                     border_style="yellow"
@@ -104,8 +105,18 @@ def process_video(file, dubbing=False, is_retry=False):
     except Exception:
         pass
 
+    # Predict the output directory name deterministically (same as cleanup()).
+    task_output_dir = None
+    try:
+        video_file = globals().get('video_file')
+        if isinstance(video_file, str) and video_file:
+            base = os.path.splitext(os.path.basename(video_file))[0]
+            task_output_dir = os.path.join(SAVE_DIR, sanitize_filename(base))
+    except Exception:
+        task_output_dir = None
+
     cleanup(SAVE_DIR)
-    return True, "", ""
+    return True, "", "", task_output_dir
 
 def prepare_output_folder(output_folder):
     if os.path.exists(output_folder):
@@ -116,11 +127,22 @@ def process_input_file(file):
     if file.startswith('http'):
         _1_ytdlp.download_video_ytdlp(file, resolution=load_key(YTB_RESOLUTION_KEY))
         video_file = _1_ytdlp.find_video_files()
+        try:
+            # Marker used to map URL -> batch/output/<dir>
+            with open(os.path.join(OUTPUT_DIR, 'source_url.txt'), 'w', encoding='utf-8') as f:
+                f.write(str(file).strip() + "\n")
+        except Exception:
+            pass
     else:
         input_file = os.path.join('batch', 'input', file)
         output_file = os.path.join(OUTPUT_DIR, file)
         shutil.copy(input_file, output_file)
         video_file = output_file
+        try:
+            with open(os.path.join(OUTPUT_DIR, 'source_url.txt'), 'w', encoding='utf-8') as f:
+                f.write(str(file).strip() + "\n")
+        except Exception:
+            pass
     return {'video_file': video_file}
 
 def split_sentences():

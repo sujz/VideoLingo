@@ -249,11 +249,30 @@ def parse_srt_time(time_str: str) -> float:
     输入: "00:01:23,456"
     输出: 83.456 (秒)
     """
-    parts = time_str.replace(',', '.').split(':')
-    hours = int(parts[0])
-    minutes = int(parts[1])
-    seconds = float(parts[2])
-    return hours * 3600 + minutes * 60 + seconds
+    s = str(time_str or "").strip()
+    if not s:
+        raise ValueError("Empty time string")
+
+    # Accept pure seconds like "10.828" or "10,828".
+    if re.fullmatch(r"\d+(?:[\.,]\d+)?", s):
+        return float(s.replace(",", "."))
+
+    parts = s.replace(',', '.').split(':')
+    if len(parts) == 3:
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = float(parts[2])
+        return hours * 3600 + minutes * 60 + seconds
+    if len(parts) == 2:
+        minutes = int(parts[0])
+        seconds = float(parts[1])
+        return minutes * 60 + seconds
+
+    # Last resort: try float.
+    try:
+        return float(s)
+    except Exception as e:
+        raise ValueError(f"Unrecognized time format: {time_str}") from e
 
 
 def format_seconds_to_srt(seconds: float) -> str:
