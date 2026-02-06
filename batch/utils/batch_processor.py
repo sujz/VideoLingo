@@ -11,10 +11,15 @@ from rich.console import Console
 from rich.panel import Panel
 import time
 import shutil
+import threading
+import zipfile
 
 from batch.utils.summary_regen import regenerate_summary_from_edited_subtitle
 
 console = Console()
+
+
+_TASKS_IO_LOCK = threading.Lock()
 
 
 TASKS_XLSX_PATH = "batch/tasks_setting.xlsx"
@@ -51,6 +56,7 @@ def merge_batch_summaries(
     batch_output_dir: str = SAVE_DIR,
     error_output_dir: str = ERROR_OUTPUT_DIR,
     output_file: str = "batch/output/batch_summary_all.mp4",
+    inputs: list[str] | None = None,
 ):
     """Merge per-video summaries under batch/output/*/batch_summary into one final video.
 
@@ -58,59 +64,66 @@ def merge_batch_summaries(
     - Prefers merged_clips_dub.mp4 if present, else merged_clips.mp4
     - Sorts inputs by directory modification time (processing order in sequential batch)
     """
-    base = Path(batch_output_dir)
-    if not base.exists():
-        console.print(Panel(f"No batch output directory: {batch_output_dir}", border_style="yellow"))
-        return None
+    if inputs is None:
+        base = Path(batch_output_dir)
+        if not base.exists():
+            console.print(Panel(f"No batch output directory: {batch_output_dir}", border_style="yellow"))
+            return None
 
-    candidates = []
-    error_dir = Path(error_output_dir)
+        candidates = []
+        error_dir = Path(error_output_dir)
 
-    for child in base.iterdir():
-        if not child.is_dir():
-            continue
-        if child.name.startswith("."):
-            continue
-
-        if error_dir.exists():
-            try:
-                if child.resolve() == error_dir.resolve():
-                    continue
-            except Exception:
-                pass
-
-        # Back-compat: also skip by name.
-        if child.name == "ERROR":
-            continue
-
-        summary_dir = child / "batch_summary"
-        if not summary_dir.exists():
-            continue
-
-        preferred = summary_dir / "merged_clips_dub.mp4"
-        fallback = summary_dir / "merged_clips.mp4"
-        if preferred.exists():
-            summary_path = preferred
-        elif fallback.exists():
-            summary_path = fallback
-        else:
-            matches = sorted(summary_dir.glob("merged_clips*.mp4"))
-            if not matches:
+        for child in base.iterdir():
+            if not child.is_dir():
                 continue
-            summary_path = matches[0]
+            if child.name.startswith("."):
+                continue
 
-        try:
-            dir_mtime = child.stat().st_mtime
-        except Exception:
-            dir_mtime = 0
-        candidates.append((dir_mtime, str(summary_path)))
+            if error_dir.exists():
+                try:
+                    if child.resolve() == error_dir.resolve():
+                        continue
+                except Exception:
+                    pass
 
-    if not candidates:
-        console.print(Panel("No per-video summaries found to merge.", border_style="yellow"))
-        return None
+            # Back-compat: also skip by name.
+            if child.name == "ERROR":
+                continue
 
-    candidates.sort(key=lambda x: x[0])
-    inputs = [p for _, p in candidates]
+            summary_dir = child / "batch_summary"
+            if not summary_dir.exists():
+                continue
+
+            preferred = summary_dir / "merged_clips_dub.mp4"
+            fallback = summary_dir / "merged_clips.mp4"
+            if preferred.exists():
+                summary_path = preferred
+            elif fallback.exists():
+                summary_path = fallback
+            else:
+                matches = sorted(summary_dir.glob("merged_clips*.mp4"))
+                if not matches:
+                    continue
+                summary_path = matches[0]
+
+            try:
+                dir_mtime = child.stat().st_mtime
+            except Exception:
+                dir_mtime = 0
+            candidates.append((dir_mtime, str(summary_path)))
+
+        if not candidates:
+            console.print(Panel("No per-video summaries found to merge.", border_style="yellow"))
+            return None
+
+        candidates.sort(key=lambda x: x[0])
+        inputs = [p for _, p in candidates]
+    else:
+        inputs = [str(p).strip() for p in inputs if str(p).strip()]
+        inputs = [p for p in inputs if os.path.exists(p)]
+        if not inputs:
+            console.print(Panel("No input summaries provided to merge.", border_style="yellow"))
+            return None
 
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
@@ -203,7 +216,31 @@ def load_tasks_df(path: str = TASKS_XLSX_PATH) -> pd.DataFrame:
         df = pd.DataFrame(columns=['Video File', 'Source Language', 'Target Language', 'Dubbing', 'Status', OUTPUT_DIR_COL])
         df.to_excel(path, index=False)
         return df
-    df = pd.read_excel(path)
+
+    bak_path = path + ".bak"
+    last_err: Exception | None = None
+    with _TASKS_IO_LOCK:
+        for attempt in range(6):
+            try:
+                df = pd.read_excel(path)
+                break
+            except zipfile.BadZipFile as e:
+                # Likely read during a concurrent write; retry.
+                last_err = e
+                time.sleep(0.15 * (attempt + 1))
+            except Exception as e:
+                last_err = e
+                time.sleep(0.10 * (attempt + 1))
+        else:
+            # Fallback to backup if present.
+            if os.path.exists(bak_path):
+                try:
+                    df = pd.read_excel(bak_path)
+                except Exception:
+                    raise last_err  # type: ignore[misc]
+            else:
+                raise last_err  # type: ignore[misc]
+
     # Back-compat: add new columns if missing.
     if OUTPUT_DIR_COL not in df.columns:
         df[OUTPUT_DIR_COL] = None
@@ -212,7 +249,22 @@ def load_tasks_df(path: str = TASKS_XLSX_PATH) -> pd.DataFrame:
 
 
 def save_tasks_df(df: pd.DataFrame, path: str = TASKS_XLSX_PATH) -> None:
-    df.to_excel(path, index=False)
+    # Must keep a .xlsx suffix so pandas can select an Excel writer engine.
+    tmp_path = path + ".tmp.xlsx"
+    bak_path = path + ".bak"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    with _TASKS_IO_LOCK:
+        # Keep a best-effort backup of the last good file.
+        if os.path.exists(path):
+            try:
+                shutil.copy2(path, bak_path)
+            except Exception:
+                pass
+
+        # Write to a temp file then atomically replace.
+        df.to_excel(tmp_path, index=False)
+        os.replace(tmp_path, path)
 
 
 def append_tasks(video_urls: list[str], path: str = TASKS_XLSX_PATH) -> pd.DataFrame:
@@ -338,6 +390,26 @@ def process_selected_videos(
         if progress_cb:
             progress_cb(video_file, 'Running')
 
+        # Make it obvious that processing actually started, even before the first heavy step.
+        try:
+            os.makedirs('output', exist_ok=True)
+            df.at[index, 'Status'] = 'Running: 🧹 Preparing output folder'
+            save_tasks_df(df, tasks_path)
+            if progress_cb:
+                progress_cb(video_file, 'Running: 🧹 Preparing output folder')
+        except Exception:
+            pass
+
+        def _step_cb(step_name: str, _index=index, _video_file=video_file):
+            try:
+                current_df = load_tasks_df(tasks_path)
+                current_df.at[_index, 'Status'] = f"Running: {step_name}"
+                save_tasks_df(current_df, tasks_path)
+                if progress_cb:
+                    progress_cb(_video_file, f"Running: {step_name}")
+            except Exception:
+                pass
+
         source_language = row.get('Source Language')
         target_language = row.get('Target Language')
         original_source_lang, original_target_lang = record_and_update_config(source_language, target_language)
@@ -345,13 +417,24 @@ def process_selected_videos(
         try:
             dubbing = 0 if pd.isna(row.get('Dubbing')) else int(row.get('Dubbing'))
             is_retry = not pd.isna(row.get('Status')) and 'Error' in str(row.get('Status'))
-            result = process_video(video_file, dubbing, is_retry)
+            result = process_video(video_file, dubbing=bool(dubbing), is_retry=bool(is_retry), step_cb=_step_cb)
             if isinstance(result, tuple) and len(result) == 4:
                 status, error_step, error_message, task_output_dir = result
             else:
                 status, error_step, error_message = result
                 task_output_dir = None
             status_msg = 'Done' if status else f"Error: {error_step} - {error_message}"
+        except BaseException as e:
+            # If the app is stopped/reloaded, avoid leaving the task stuck at "Running".
+            status_msg = f"Error: Aborted - {type(e).__name__}"
+            df.at[index, 'Status'] = status_msg
+            try:
+                save_tasks_df(df, tasks_path)
+                if progress_cb:
+                    progress_cb(video_file, status_msg)
+            except Exception:
+                pass
+            raise
         except Exception as e:
             status_msg = f"Error: Unhandled exception - {str(e)}"
             console.print(f"[bold red]Error processing {video_file}: {status_msg}")
@@ -389,7 +472,7 @@ def process_batch(merge_summaries: bool = False):
     if not check_settings():
         raise Exception("Settings check failed")
 
-    df = pd.read_excel(TASKS_XLSX_PATH)
+    df = load_tasks_df(TASKS_XLSX_PATH)
     for index, row in df.iterrows():
         if pd.isna(row['Status']) or 'Error' in str(row['Status']):
             total_tasks = len(df)
@@ -435,13 +518,26 @@ def process_batch(merge_summaries: bool = False):
             try:
                 dubbing = 0 if pd.isna(row['Dubbing']) else int(row['Dubbing'])
                 is_retry = not pd.isna(row['Status']) and 'Error' in str(row['Status'])
-                result = process_video(video_file, dubbing, is_retry)
+                def _step_cb(step_name: str, _index=index):
+                    try:
+                        current_df = pd.read_excel(TASKS_XLSX_PATH)
+                        current_df.at[_index, 'Status'] = f"Running: {step_name}"
+                        current_df.to_excel(TASKS_XLSX_PATH, index=False)
+                    except Exception:
+                        pass
+
+                result = process_video(video_file, dubbing=bool(dubbing), is_retry=bool(is_retry), step_cb=_step_cb)
                 if isinstance(result, tuple) and len(result) == 4:
                     status, error_step, error_message, task_output_dir = result
                 else:
                     status, error_step, error_message = result
                     task_output_dir = None
                 status_msg = "Done" if status else f"Error: {error_step} - {error_message}"
+            except BaseException as e:
+                status_msg = f"Error: Aborted - {type(e).__name__}"
+                df.at[index, 'Status'] = status_msg
+                save_tasks_df(df, TASKS_XLSX_PATH)
+                raise
             except Exception as e:
                 status_msg = f"Error: Unhandled exception - {str(e)}"
                 console.print(f"[bold red]Error processing {video_file}: {status_msg}")

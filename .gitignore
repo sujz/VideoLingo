@@ -158,6 +158,8 @@ _model_cache/
 batch/input/
 batch/output/
 batch/tasks_setting.xlsx
+batch/tasks_setting.xlsx.bak
+batch/**/*.tmp.xlsx
 
 # large files
 /ffmpeg.exe

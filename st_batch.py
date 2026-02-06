@@ -5,6 +5,8 @@ import sys
 import hashlib
 import subprocess
 import platform
+import threading
+import time
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -188,8 +190,8 @@ def main():
 
     status_placeholder = st.empty()
 
-    def _stable_key(prefix: str, video_file: str) -> str:
-        h = hashlib.md5((video_file or "").encode("utf-8"), usedforsecurity=False).hexdigest()  # noqa: S324
+    def _stable_key(prefix: str, seed: str) -> str:
+        h = hashlib.md5((seed or "").encode("utf-8"), usedforsecurity=False).hexdigest()  # noqa: S324
         return f"{prefix}_{h}"
 
     def _open_in_system(path: Path) -> None:
@@ -243,13 +245,11 @@ def main():
         return p if p.exists() else None
 
     def _summary_video_path(task_dir: Path) -> Path:
-        # Spec path: batch_summary/merged_clips.mp4
-        p = task_dir / "batch_summary" / "merged_clips.mp4"
-        if p.exists():
-            return p
-        # Fallback if only dubbed version exists.
-        p2 = task_dir / "batch_summary" / "merged_clips_dub.mp4"
-        return p2
+        # Prefer dubbed summary if present, else fall back to non-dubbed.
+        p_dub = task_dir / "batch_summary" / "merged_clips_dub.mp4"
+        if p_dub.exists():
+            return p_dub
+        return task_dir / "batch_summary" / "merged_clips.mp4"
 
     def _render_status():
         df_tasks = batch_processor.load_tasks_df(TASKS_PATH)
@@ -266,7 +266,7 @@ def main():
             header[3].markdown("**摘要视频**")
             header[4].markdown("**中文字幕**")
 
-            for _, row in df_show.iterrows():
+            for row_idx, row in df_show.iterrows():
                 video_file = str(row.get("Video File") or "")
                 status = str(row.get("Status") or "")
                 task_dir = _task_dir_from_row(row)
@@ -278,21 +278,33 @@ def main():
                 if task_dir and ("Done" in status):
                     sub_video = task_dir / "output_sub.mp4"
                     if sub_video.exists():
-                        if cols[2].button("打开", key=_stable_key("open_sub", video_file), use_container_width=True):
+                        if cols[2].button(
+                            "打开",
+                            key=_stable_key("open_sub", f"{video_file}|{row_idx}"),
+                            use_container_width=True,
+                        ):
                             _open_in_system(sub_video)
                     else:
                         cols[2].write("-")
 
                     summary_video = _summary_video_path(task_dir)
                     if summary_video.exists():
-                        if cols[3].button("打开", key=_stable_key("open_summary", video_file), use_container_width=True):
+                        if cols[3].button(
+                            "打开",
+                            key=_stable_key("open_summary", f"{video_file}|{row_idx}"),
+                            use_container_width=True,
+                        ):
                             _open_in_system(summary_video)
                     else:
                         cols[3].write("-")
 
                     trans_srt = task_dir / "trans.srt"
                     if trans_srt.exists():
-                        if cols[4].button("打开", key=_stable_key("open_srt", video_file), use_container_width=True):
+                        if cols[4].button(
+                            "打开",
+                            key=_stable_key("open_srt", f"{video_file}|{row_idx}"),
+                            use_container_width=True,
+                        ):
                             _open_text_in_system(trans_srt)
                     else:
                         cols[4].write("-")
@@ -301,14 +313,23 @@ def main():
                     cols[3].write("-")
                     cols[4].write("-")
 
-    # Always render the current results table (important after a rerun).
+    # Render the current results table once per rerun.
     _render_status()
 
     def progress_cb(video_url: str, status: str):
-        # Update UI on each status change
-        _render_status()
+        # No-op in UI thread mode; status is persisted to xlsx by batch_processor.
+        # UI refresh is done by polling while the worker thread is running.
+        return
 
     processing = bool(st.session_state.get("processing", False))
+
+    worker = st.session_state.get("worker_thread")
+    if worker is not None and hasattr(worker, "is_alive"):
+        if not worker.is_alive():
+            st.session_state["processing"] = False
+            st.session_state["worker_thread"] = None
+            processing = False
+
     start_clicked = st.button(
         "开始处理",
         type="primary",
@@ -318,29 +339,51 @@ def main():
     )
 
     if start_clicked:
+        # Ensure tasks exist for these URLs
+        batch_processor.append_tasks(selected_urls, TASKS_PATH)
         st.session_state["processing"] = True
-        try:
-            # Ensure tasks exist for these URLs
-            batch_processor.append_tasks(selected_urls, TASKS_PATH)
-            _render_status()
 
-            batch_processor.process_selected_videos(
-                selected_urls,
-                TASKS_PATH,
-                progress_cb=progress_cb,
-                merge_summaries=False,
-            )
-            _render_status()
-            st.success("处理完成。")
-        finally:
-            st.session_state["processing"] = False
-            st.rerun()
+        def _run_worker(urls: list[str]):
+            try:
+                batch_processor.process_selected_videos(
+                    urls,
+                    TASKS_PATH,
+                    progress_cb=None,
+                    merge_summaries=False,
+                )
+            except Exception:
+                # Errors are persisted into Status by batch_processor.
+                pass
+
+        t = threading.Thread(target=_run_worker, args=(list(selected_urls),), daemon=True)
+        st.session_state["worker_thread"] = t
+        t.start()
+
+    # While running: refresh periodically (do NOT render the table twice in one run).
+    if bool(st.session_state.get("processing", False)):
+        st.info("处理中：页面会自动刷新状态。处理中请尽量不要修改代码文件。")
+        time.sleep(2)
+        st.rerun()
 
     st.subheader("d. 合并多个摘要视频")
     merged_placeholder = st.empty()
     if st.button("合并多个摘要视频", use_container_width=True):
+        df_tasks = batch_processor.load_tasks_df(TASKS_PATH)
+        df_sel = df_tasks[df_tasks["Video File"].isin(selected_urls)].copy()
+        inputs = []
+        for _, row in df_sel.iterrows():
+            status = str(row.get("Status") or "")
+            if "Done" not in status:
+                continue
+            task_dir = _task_dir_from_row(row)
+            if not task_dir:
+                continue
+            p = _summary_video_path(task_dir)
+            if p.exists():
+                inputs.append(str(p))
+
         with st.spinner("合并中..."):
-            merged = batch_processor.merge_successful_summaries()
+            merged = batch_processor.merge_batch_summaries(inputs=inputs)
         if merged and os.path.exists(merged):
             merged_placeholder.video(merged)
         else:

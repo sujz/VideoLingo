@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import List, Tuple
 import concurrent.futures
+import re
 
 from core._3_2_split_meaning import split_sentence
 from core.prompts import get_align_prompt
@@ -86,7 +87,39 @@ def split_align_subs(src_lines: List[str], tr_lines: List[str]):
     
     @except_handler("Error in split_align_subs")
     def process(i):
-        split_src = split_sentence(src_lines[i], num_parts=2).strip()
+        original_src = str(src_lines[i])
+        split_src_raw = split_sentence(original_src, num_parts=2)
+        split_src_raw = "" if split_src_raw is None else str(split_src_raw)
+
+        def _normalize_split_parts(split_text: str, num_parts: int, fallback_text: str) -> str:
+            parts = [p.strip() for p in re.split(r"\n|\s*\|\|\s*", split_text) if p.strip()]
+            if len(parts) == num_parts:
+                return "\n".join(parts)
+            if len(parts) > num_parts:
+                head = parts[: num_parts - 1]
+                tail = " ".join(parts[num_parts - 1 :]).strip()
+                return "\n".join([*head, tail])
+
+            # If the model failed to split, do a deterministic fallback split.
+            text = str(fallback_text)
+            if num_parts <= 1:
+                return text.strip()
+            # Prefer splitting on punctuation/space closest to the middle.
+            mid = max(len(text) // 2, 1)
+            candidates = []
+            for j in range(max(1, mid - 60), min(len(text) - 1, mid + 60)):
+                if text[j] in [" ", ",", ".", ";", ":", "，", "。", "；", "：", "!", "?", "！", "？"]:
+                    candidates.append(j)
+            cut = candidates[len(candidates) // 2] if candidates else mid
+            left = text[:cut].strip()
+            right = text[cut:].strip()
+            if not left or not right:
+                # Last resort: split by character count.
+                left = text[:mid].strip()
+                right = text[mid:].strip()
+            return f"{left}\n{right}".strip()
+
+        split_src = _normalize_split_parts(split_src_raw.strip(), num_parts=2, fallback_text=original_src)
         src_parts, tr_parts, tr_remerged = align_subs(src_lines[i], tr_lines[i], split_src)
         src_lines[i] = src_parts
         tr_lines[i] = tr_parts

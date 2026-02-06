@@ -23,8 +23,19 @@ SAVE_DIR = 'batch/output'
 ERROR_OUTPUT_DIR = 'batch/output/ERROR'
 YTB_RESOLUTION_KEY = "ytb_resolution"
 
-def process_video(file, dubbing=False, is_retry=False):
-    if not is_retry:
+def process_video(file, dubbing=False, is_retry=False, step_cb=None):
+    # Prepare workspace folder for this task.
+    # - Normal run: wipe and recreate output/ for a clean pipeline.
+    # - Retry run: keep existing files if present, but still ensure output/ exists.
+    if step_cb:
+        try:
+            step_cb("🧹 Preparing output folder")
+        except Exception:
+            pass
+
+    if is_retry:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+    else:
         prepare_output_folder(OUTPUT_DIR)
     
     text_steps = [
@@ -49,6 +60,11 @@ def process_video(file, dubbing=False, is_retry=False):
     current_step = ""
     for step_name, step_func in text_steps:
         current_step = step_name
+        if step_cb:
+            try:
+                step_cb(step_name)
+            except Exception:
+                pass
         for attempt in range(3):
             try:
                 console.print(Panel(
